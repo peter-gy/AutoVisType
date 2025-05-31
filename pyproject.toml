@@ -1,0 +1,37 @@
+[project]
+name = "autovistype"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "altair>=5.5.0",
+    "hishel[sqlite]>=0.1.2",
+    "httpx>=0.28.1",
+    "langchain-anthropic>=0.3.14",
+    "langchain-community>=0.3.21",
+    "langchain-google-genai>=2.1.4",
+    "langchain-groq>=0.3.2",
+    "langchain-mistralai>=0.2.10",
+    "langchain-ollama>=0.3.3",
+    "langchain-openai>=0.3.18",
+    "langchain>=0.3.25",
+    "langfuse>=2.60.6",
+    "marimo[recommended]>=0.13.11",
+    "openai>=1.82.0",
+    "plotly>=6.1.2",
+    "polars>=1.30.0",
+    "pyarrow>=20.0.0",
+    "pydantic>=2.11.5",
+    "scikit-learn>=1.6.1",
+    "tenacity>=9.1.2",
+    "tokencost>=0.1.22",
+    "tqdm>=4.67.1",
+    "vl-convert-python>=1.8.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.11",
+]
+
+[tool.marimo.runtime]
+dotenv = [".env"]

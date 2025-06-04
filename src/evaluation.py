@@ -3,9 +3,26 @@ import marimo
 __generated_with = "0.13.14"
 app = marimo.App(width="full", layout_file="layouts/evaluation.grid.json")
 
+with app.setup:
+    import itertools
+    import pathlib
+    import typing as ty
+
+    import altair as alt
+    import marimo as mo
+    import numpy as np
+    import polars as pl
+    import sklearn.metrics as skm
+    import sklearn.preprocessing as skprep
+    from tqdm.notebook import tqdm
+
+    import plotly.figure_factory as ff
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
 
 @app.cell(hide_code=True)
-def _(DIFFICULTIES, FEATURES, MODELS, evaluate_model, tqdm):
+def _(DIFFICULTIES, FEATURES, MODELS, evaluate_model):
     evaluation_configs: list[dict] = []
     for m in MODELS:
         for f in FEATURES:
@@ -28,23 +45,80 @@ def _(DIFFICULTIES, FEATURES, MODELS, evaluate_model, tqdm):
     return (evaluations,)
 
 
+@app.cell
+def _(metrics_overview_df):
+    metrics_overview_df
+    return
+
+
 @app.cell(hide_code=True)
-def _(alt, construct_metrics_overview_df, evaluations, metric_picker, mo):
-    metrics_overview_df = construct_metrics_overview_df(evaluations)
+def _(
+    MODEL_ID_LABELS,
+    PROVIDER_ID_LABELS,
+    construct_metrics_overview_df,
+    evaluations,
+    metric_picker,
+):
+    metrics_overview_df = construct_metrics_overview_df(evaluations).with_columns(
+        pl.col("provider_id").replace(
+            old=list(PROVIDER_ID_LABELS.keys()),
+            new=list(PROVIDER_ID_LABELS.values()),
+        ),
+        pl.col("model_id").replace(
+            old=list(MODEL_ID_LABELS.keys()),
+            new=list(MODEL_ID_LABELS.values()),
+        ),
+    )
 
     metric = metric_picker.value
     metrics_overview_chart = (
         alt.Chart(metrics_overview_df)
         .mark_bar()
         .encode(
-            x=alt.X("difficulty_level:N", title="Difficulty"),
-            y=alt.Y(f"{metric}:Q", title=metric),
+            x=alt.X(
+                "difficulty_level:N",
+                title="Difficulty",
+            ),
+            y=alt.Y(
+                f"{metric}:Q",
+                title=metric,
+                axis=alt.Axis(titleFontSize=10),
+            ),
+            color=alt.Color(
+                "provider_id:N",
+                title="Provider",
+                scale=alt.Scale(
+                    domain=list(PROVIDER_ID_LABELS.values()),
+                    range=[
+                        "#d85140",
+                        "#1c46a9",
+                        "#ee782f",
+                        "#75b9a1",
+                        "#5442c7",
+                    ],
+                ),
+                legend=alt.Legend(
+                    orient="top",
+                    direction="horizontal",
+                ),
+            ),
             column=alt.Column(
                 "model_id:N",
                 title="Model",
-                header=alt.Header(labelFontSize=9),
+                sort={"field": "provider_id"},
+                header=alt.Header(
+                    titleFontSize=14,
+                    labelFontSize=12,
+                ),
             ),
-            row=alt.Row("feature:N", title="Predicted Feature"),
+            row=alt.Row(
+                "feature:N",
+                title="Predicted Feature",
+                header=alt.Header(
+                    titleFontSize=14,
+                    labelFontSize=12,
+                ),
+            ),
             tooltip=[
                 alt.Tooltip("model_id:N", title="Model"),
                 alt.Tooltip("feature:N", title="Feature"),
@@ -52,8 +126,11 @@ def _(alt, construct_metrics_overview_df, evaluations, metric_picker, mo):
                 alt.Tooltip(f"{metric}:Q", title=metric),
             ],
         )
-        .properties(width=150, height=150)
+        .properties(width=90, height=50)
     )
+
+    save_chart(metrics_overview_chart, f"nogit/figures/metric-overview-{metric}")
+
     mo.vstack(
         [
             metric_picker,
@@ -63,71 +140,127 @@ def _(alt, construct_metrics_overview_df, evaluations, metric_picker, mo):
     return (metrics_overview_df,)
 
 
-@app.cell
-def _(metrics_overview_df):
-    metrics_overview_df
+@app.cell(hide_code=True)
+def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
+    classification_accuracy_overview_df = construct_classification_accuracy_overview_df(
+        evaluations
+    ).with_columns(
+        pl.col("provider_id").replace(
+            old=list(PROVIDER_ID_LABELS.keys()),
+            new=list(PROVIDER_ID_LABELS.values()),
+        ),
+        pl.col("model_id").replace(
+            old=list(MODEL_ID_LABELS.keys()),
+            new=list(MODEL_ID_LABELS.values()),
+        ),
+    )
+
+    def create_classification_accuracy_chart(
+        feature: ty.Literal["purpose", "encoding", "dimensionality"],
+        metric: ty.Literal["precision", "recall", "f1-score"],
+        classification_accuracy_overview_df: pl.DataFrame,
+        rect_size: tuple[float, float] = (30, 30),
+        chart_size: tuple[float, float] | None = None,
+    ) -> alt.Chart:
+        df = classification_accuracy_overview_df.filter(feature=pl.lit(feature))
+        num_rects_x = df.unique("model_id").height
+        num_rects_y = df.unique("label").height
+        rect_size_x, rect_size_y = rect_size
+
+        return (
+            alt.Chart(df)
+            .mark_rect()
+            .encode(
+                x=alt.X(
+                    "model_id:N",
+                    title="Model",
+                    sort=alt.EncodingSortField(
+                        field=metric,
+                        op="mean",
+                        order="descending",
+                    ),
+                    axis=alt.Axis(labelAngle=-45),
+                ),
+                y=alt.Y(
+                    "label:N",
+                    title=feature.capitalize(),
+                    sort=alt.EncodingSortField(
+                        field=metric,
+                        op="mean",
+                        order="descending",
+                    ),
+                ),
+                color=alt.Color(
+                    f"{metric}:Q",
+                    title=metric.capitalize(),
+                    scale=alt.Scale(
+                        domain=[0, 1],
+                        scheme="viridis",
+                        reverse=True,
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("model_id:N", title="Model"),
+                    alt.Tooltip("label:N", title="Label"),
+                    alt.Tooltip(
+                        f"{metric}:Q",
+                        title=metric.capitalize(),
+                        format=".2f",
+                    ),
+                ],
+            )
+            .properties(
+                width=rect_size_x * num_rects_x
+                if chart_size is None
+                else chart_size[0],
+                height=rect_size_y * num_rects_y
+                if chart_size is None
+                else chart_size[1],
+            )
+        )
+
+    classification_accuracy_overview_chart = alt.hconcat(
+        *[
+            create_classification_accuracy_chart(
+                "purpose",
+                "f1-score",
+                classification_accuracy_overview_df,
+                chart_size=(300, 150),
+            ),
+            create_classification_accuracy_chart(
+                "encoding",
+                "f1-score",
+                classification_accuracy_overview_df,
+                chart_size=(300, 150),
+            ),
+            create_classification_accuracy_chart(
+                "dimensionality",
+                "f1-score",
+                classification_accuracy_overview_df,
+                chart_size=(300, 150),
+            ),
+        ]
+    )
+
+    save_chart(
+        classification_accuracy_overview_chart,
+        "nogit/figures/classification-accuracy-overview",
+    )
+
+    classification_accuracy_overview_chart
     return
 
 
 @app.cell(hide_code=True)
-def _(metrics, mo):
-    metric_picker = mo.ui.dropdown(metrics, label="Metric", value=metrics[0])
+def _(metrics):
+    metric_picker = mo.ui.dropdown(
+        sorted(metrics), label="Metric", value=sorted(metrics)[0]
+    )
     return (metric_picker,)
 
 
 @app.cell(hide_code=True)
-def _(evaluation, pl):
-    metrics = evaluation.metrics_df.select("metric").to_numpy().squeeze()
-
-    def construct_metrics_overview_df(evaluations: list[dict]) -> pl.DataFrame:
-        overall_data = []
-
-        for e in evaluations:
-            config = e["config"]
-            metrics_df = e["evaluation"].metrics_df
-            overall_data.append(
-                {
-                    **config,
-                    **{
-                        metric: find_metric_value(metric, metrics_df)
-                        for metric in metrics
-                    },
-                }
-            )
-
-        return (
-            pl.from_dicts(overall_data)
-            .with_columns(pl.col("difficulty").replace(pl.lit(None), pl.lit("all")))
-            .with_columns(
-                difficulty_level=pl.col("difficulty").replace(
-                    {
-                        "two_easy": 1,
-                        "one_hard": 2,
-                        "two_hard": 3,
-                        "others": 4,
-                        "all": 5,
-                    }
-                )
-            )
-        )
-
-    def find_metric_value(metric: str, metrics_df: pl.DataFrame) -> float:
-        value = metrics_df.filter(
-            pl.col("metric").str.to_lowercase().str.contains(metric)
-            | (pl.col("metric").str.to_lowercase() == metric.lower())
-        ).select("value")
-
-        if value.is_empty():
-            raise ValueError(f"Metric '{metric}' not found in the DataFrame.")
-
-        # Will be coerced to scalar if it contains a single value
-        return value.to_numpy().squeeze().tolist()
-
-    return construct_metrics_overview_df, metrics
-
-
-@app.cell(hide_code=True)
-def _(DIFFICULTIES, FEATURES, MODELS, mo):
+def _(DIFFICULTIES, FEATURES, MODELS):
     model_picker = mo.ui.dropdown(MODELS, label="Model", value=MODELS[0])
     feature_picker = mo.ui.dropdown(FEATURES, label="Feature", value=FEATURES[0])
     difficulty_picker = mo.ui.dropdown(
@@ -147,7 +280,7 @@ def _(evaluation):
 
 
 @app.cell(hide_code=True)
-def _(evaluation, mo):
+def _(evaluation):
     mo.md(
         f"""
     ## Classification Report
@@ -161,7 +294,7 @@ def _(evaluation, mo):
 
 
 @app.cell(hide_code=True)
-def _(evaluation, feature, mo, model_id):
+def _(evaluation, feature, model_id):
     mo.vstack(
         [
             mo.md(
@@ -174,7 +307,7 @@ def _(evaluation, feature, mo, model_id):
 
 
 @app.cell(hide_code=True)
-def _(evaluation, mo, pl):
+def _(evaluation):
     def metric_card(metric: str, value: float):
         return mo.Html(rf"""
         <div style="
@@ -211,6 +344,93 @@ def _(evaluation, mo, pl):
     return
 
 
+@app.function(hide_code=True)
+def construct_classification_accuracy_overview_df(
+    evaluations: list[dict],
+) -> pl.DataFrame:
+    return (
+        pl.from_dicts(
+            itertools.chain.from_iterable(
+                [
+                    [
+                        {
+                            **item["config"],
+                            "label": key,
+                            **value,
+                        }
+                        for key, value in item[
+                            "evaluation"
+                        ].classification_report_dict.items()
+                        if not key.endswith(" avg")
+                    ]
+                    for item in evaluations
+                ]
+            )
+        )
+        .with_columns(pl.col("model_id").str.split(":"))
+        .with_columns(
+            provider_id=pl.col("model_id").list.get(0),
+            model_id=pl.col("model_id").list.get(1),
+        )
+    )
+
+
+@app.cell(hide_code=True)
+def _(evaluation):
+    def construct_metrics_overview_df(evaluations: list[dict]) -> pl.DataFrame:
+        overall_data = []
+
+        for e in evaluations:
+            config = e["config"]
+            metrics_df = e["evaluation"].metrics_df
+            overall_data.append(
+                {
+                    **config,
+                    **{
+                        metric: find_metric_value(metric, metrics_df)
+                        for metric in metrics
+                    },
+                }
+            )
+
+        return (
+            pl.from_dicts(overall_data)
+            .with_columns(pl.col("difficulty").replace(pl.lit(None), pl.lit("all")))
+            .with_columns(
+                difficulty_level=pl.col("difficulty").replace(
+                    {
+                        "two_easy": 1,
+                        "one_hard": 2,
+                        "two_hard": 3,
+                        "others": 4,
+                        "all": 5,
+                    }
+                )
+            )
+            .with_columns(pl.col("model_id").str.split(":"))
+            .with_columns(
+                provider_id=pl.col("model_id").list.get(0),
+                model_id=pl.col("model_id").list.get(1),
+            )
+            .sort("provider_id", "model_id")
+        )
+
+    def find_metric_value(metric: str, metrics_df: pl.DataFrame) -> float:
+        value = metrics_df.filter(
+            pl.col("metric").str.to_lowercase().str.contains(metric)
+            | (pl.col("metric").str.to_lowercase() == metric.lower())
+        ).select("value")
+
+        if value.is_empty():
+            raise ValueError(f"Metric '{metric}' not found in the DataFrame.")
+
+        # Will be coerced to scalar if it contains a single value
+        return value.to_numpy().squeeze().tolist()
+
+    metrics = evaluation.metrics_df.select("metric").to_numpy().squeeze()
+    return construct_metrics_overview_df, metrics
+
+
 @app.cell(hide_code=True)
 def _(difficulty_picker, evaluations, feature_picker, model_picker):
     # Access UI element values
@@ -235,20 +455,14 @@ def _(difficulty_picker, evaluations, feature_picker, model_picker):
 
 @app.cell(hide_code=True)
 def _(
-    binarize_labels,
-    compute_metrics_df,
     construct_eval_df,
     enumerate_unique_labels,
-    go,
-    np,
-    pl,
     plot_multilabel_cm_with_annotations,
-    skm,
-    ty,
 ):
     class Evaluation(ty.NamedTuple):
         preview_df: pl.DataFrame
         classification_report: str
+        classification_report_dict: dict
         confusion_matrices: list[np.ndarray]
         confusion_matrices_fig: go.Figure
         metrics_df: pl.DataFrame
@@ -278,6 +492,15 @@ def _(
             predicted_labels_binarized,
             target_names=mlb.classes_,
             zero_division=0,
+            output_dict=False,
+        )
+
+        classification_report_dict = skm.classification_report(
+            true_labels_binarized,
+            predicted_labels_binarized,
+            target_names=mlb.classes_,
+            zero_division=0,
+            output_dict=True,
         )
 
         confusion_matrices = skm.multilabel_confusion_matrix(
@@ -298,6 +521,7 @@ def _(
         return Evaluation(
             preview_df=preview_df,
             classification_report=classification_report,
+            classification_report_dict=classification_report_dict,
             confusion_matrices=confusion_matrices,
             confusion_matrices_fig=confusion_matrices_fig,
             metrics_df=metrics_df,
@@ -306,68 +530,106 @@ def _(
     return (evaluate_model,)
 
 
-@app.cell(hide_code=True)
-def _(np, pl, skprep, ty):
-    def binarize_labels(
-        eval_df: pl.DataFrame,
-        unique_labels: ty.Iterable[str],
-        feature: str,
-    ) -> tuple[np.ndarray, np.ndarray, skprep.MultiLabelBinarizer]:
-        predicted_labels = eval_df.select(feature).to_numpy().squeeze()
-        true_labels = eval_df.select(f"{feature}_true").to_numpy().squeeze()
+@app.function(hide_code=True)
+def binarize_labels(
+    eval_df: pl.DataFrame,
+    unique_labels: ty.Iterable[str],
+    feature: str,
+) -> tuple[np.ndarray, np.ndarray, skprep.MultiLabelBinarizer]:
+    predicted_labels = eval_df.select(feature).to_numpy().squeeze()
+    true_labels = eval_df.select(f"{feature}_true").to_numpy().squeeze()
 
-        mlb = skprep.MultiLabelBinarizer()
-        mlb.fit([unique_labels])
-        true_labels_binarized = mlb.transform(true_labels)
-        predicted_labels_binarized = mlb.transform(predicted_labels)
+    mlb = skprep.MultiLabelBinarizer()
+    mlb.fit([unique_labels])
+    true_labels_binarized = mlb.transform(true_labels)
+    predicted_labels_binarized = mlb.transform(predicted_labels)
 
-        return true_labels_binarized, predicted_labels_binarized, mlb
-
-    return (binarize_labels,)
+    return true_labels_binarized, predicted_labels_binarized, mlb
 
 
-@app.cell(hide_code=True)
-def _(itertools, np, pl, skm):
-    def compute_metrics_df(
-        true_labels_binarized: np.ndarray,
-        predicted_labels_binarized: np.ndarray,
-    ) -> pl.DataFrame:
-        metrics: list[dict] = []
+@app.function(hide_code=True)
+def compute_metrics_df(
+    true_labels_binarized: np.ndarray,
+    predicted_labels_binarized: np.ndarray,
+) -> pl.DataFrame:
+    metrics: list[dict] = []
 
-        # Exact Match Ratio (Subset Accuracy):
-        metrics.append(
+    # Exact Match Ratio (Subset Accuracy):
+    metrics.append(
+        {
+            "metric": "accuracy",
+            "value": skm.accuracy_score(
+                true_labels_binarized,
+                predicted_labels_binarized,
+            ),
+        }
+    )
+
+    # Hamming Loss
+    metrics.append(
+        {
+            "metric": "hamming",
+            "value": skm.hamming_loss(
+                true_labels_binarized,
+                predicted_labels_binarized,
+            ),
+        }
+    )
+
+    # Jaccard Score (Intersection over Union)
+    metrics.extend(
+        [
             {
-                "metric": "Accuracy Score",
-                "value": skm.accuracy_score(
+                "metric": f"jaccard_{avg_type}",
+                "value": skm.jaccard_score(
                     true_labels_binarized,
                     predicted_labels_binarized,
+                    average=avg_type,
+                    zero_division=0,
                 ),
             }
-        )
+            for avg_type in [
+                "micro",
+                "macro",
+                "weighted",
+                "samples",
+            ]
+        ]
+    )
 
-        # Hamming Loss
-        metrics.append(
-            {
-                "metric": "Hamming Loss",
-                "value": skm.hamming_loss(
-                    true_labels_binarized,
-                    predicted_labels_binarized,
-                ),
-            }
-        )
-
-        # Jaccard Score (Intersection over Union)
-        metrics.extend(
+    # Precision, Recall, and F1-Score (Label-Based Metrics)
+    metrics.extend(
+        itertools.chain.from_iterable(
             [
-                {
-                    "metric": f"Jaccard Score - {avg_type} averaging",
-                    "value": skm.jaccard_score(
-                        true_labels_binarized,
-                        predicted_labels_binarized,
-                        average=avg_type,
-                        zero_division=0,
-                    ),
-                }
+                [
+                    {
+                        "metric": f"precision_{avg_type}",
+                        "value": skm.precision_score(
+                            true_labels_binarized,
+                            predicted_labels_binarized,
+                            average=avg_type,
+                            zero_division=0,
+                        ),
+                    },
+                    {
+                        "metric": f"recall_{avg_type}",
+                        "value": skm.recall_score(
+                            true_labels_binarized,
+                            predicted_labels_binarized,
+                            average=avg_type,
+                            zero_division=0,
+                        ),
+                    },
+                    {
+                        "metric": f"f1_{avg_type}",
+                        "value": skm.f1_score(
+                            true_labels_binarized,
+                            predicted_labels_binarized,
+                            average=avg_type,
+                            zero_division=0,
+                        ),
+                    },
+                ]
                 for avg_type in [
                     "micro",
                     "macro",
@@ -376,57 +638,13 @@ def _(itertools, np, pl, skm):
                 ]
             ]
         )
+    )
 
-        # Precision, Recall, and F1-Score (Label-Based Metrics)
-        metrics.extend(
-            itertools.chain.from_iterable(
-                [
-                    [
-                        {
-                            "metric": f"Precision Score - {avg_type} averaging",
-                            "value": skm.precision_score(
-                                true_labels_binarized,
-                                predicted_labels_binarized,
-                                average=avg_type,
-                                zero_division=0,
-                            ),
-                        },
-                        {
-                            "metric": f"Recall Score - {avg_type} averaging",
-                            "value": skm.recall_score(
-                                true_labels_binarized,
-                                predicted_labels_binarized,
-                                average=avg_type,
-                                zero_division=0,
-                            ),
-                        },
-                        {
-                            "metric": f"F1 Score - {avg_type} averaging",
-                            "value": skm.f1_score(
-                                true_labels_binarized,
-                                predicted_labels_binarized,
-                                average=avg_type,
-                                zero_division=0,
-                            ),
-                        },
-                    ]
-                    for avg_type in [
-                        "micro",
-                        "macro",
-                        "weighted",
-                        "samples",
-                    ]
-                ]
-            )
-        )
-
-        return pl.from_dicts(metrics)
-
-    return (compute_metrics_df,)
+    return pl.from_dicts(metrics)
 
 
 @app.cell(hide_code=True)
-def _(ModelId, ai_df, human_df, pl):
+def _(ModelId, ai_df, human_df):
     def construct_eval_df(
         model_id: ModelId,
         ai_df: pl.DataFrame = ai_df,
@@ -516,7 +734,7 @@ def _(ModelId, ai_df, human_df, pl):
 
 
 @app.cell(hide_code=True)
-def _(human_df, ty):
+def _(human_df):
     ModelId = ty.Literal[
         "google_genai:gemini-2.0-flash",
         "google_genai:gemini-2.5-flash-preview-05-20",
@@ -547,28 +765,54 @@ def _(human_df, ty):
 
 
 @app.cell(hide_code=True)
-def _(pl):
-    ai_df = pl.read_parquet(
+def _():
+    PROVIDER_ID_LABELS = {
+        "google_genai": "Google GenAI",
+        "meta-llama": "Meta Llama",
+        "mistralai": "Mistral AI",
+        "openai": "OpenAI",
+        "qwen": "Qwen",
+    }
+
+    MODEL_ID_LABELS = {
+        "gemini-2.0-flash": "Gemini 2.0 Flash",
+        "gemini-2.5-flash-preview-05-20": "Gemini 2.5 Flash",
+        "gemini-2.5-pro-preview-05-06": "Gemini 2.5 Pro",
+        "gpt-4.1": "GPT-4.1",
+        "gpt-4.1-mini": "GPT-4.1 Mini",
+        "gpt-4.1-nano": "GPT-4.1 Nano",
+        "llama-4-maverick": "Llama 4 Maverick",
+        "llama-4-scout": "Llama 4 Scout",
+        "mistral-medium-3": "Mistral Medium 3",
+        "mistral-small-3.1-24b-instruct": "Mistral Small 3.1 (24B)",
+        "o4-mini": "O4 Mini",
+        "pixtral-large-2411": "Pixtral Large",
+        "qwen2.5-vl-32b-instruct": "Qwen 2.5 VL (32B)",
+    }
+    return MODEL_ID_LABELS, PROVIDER_ID_LABELS
+
+
+@app.cell(hide_code=True)
+def _():
+    human_raw_df = read_human_raw_df()
+    human_df = construct_human_df(human_raw_df)
+    ai_df = read_ai_df()
+    return ai_df, human_df
+
+
+@app.function(hide_code=True)
+def read_ai_df() -> pl.DataFrame:
+    return pl.read_parquet(
         "data/results/provider=*/model=*/analysis.parquet",
         glob=True,
         hive_partitioning=True,
     ).drop("error")
-    # ai_df
-    return (ai_df,)
 
 
-@app.cell(hide_code=True)
-def _(pl):
-    human_df = (
-        pl.read_csv("data/vispubData30_updated_07112024.csv")
-        .filter(check_encoding_type=1)
-        .select(
-            "url",
-            "encoding_type",
-            "dim_type",
-            "hardness_type",
-        )
-        .with_columns(
+@app.function(hide_code=True)
+def construct_human_df(human_raw_df: pl.DataFrame) -> pl.DataFrame:
+    return (
+        human_raw_df.with_columns(
             purpose_and_encoding=pl.when(
                 pl.col("encoding_type").str.contains("schematic")
             )
@@ -597,8 +841,7 @@ def _(pl):
         .drop("encoding_type")
         .unnest("purpose_and_encoding")
         .select(
-            "url",
-            "purpose",
+            pl.exclude("encoding", "dim_type", "hardness_type"),
             pl.col("encoding").str.split(";"),
             pl.col("dim_type").str.split(";").alias("dimensionality"),
             pl.col("hardness_type").alias("difficulty"),
@@ -612,16 +855,35 @@ def _(pl):
             )
         )
     )
-    # human_df
-    return (human_df,)
+
+
+@app.function(hide_code=True)
+def read_human_raw_df(
+    vispubdata_csv_url: str = "https://media.githubusercontent.com/media/peter-gy/AutoVisType/refs/heads/main/data/vispubData30_updated_07112024.csv",
+) -> pl.DataFrame:
+    return (
+        pl.read_csv(vispubdata_csv_url)
+        .filter(check_encoding_type=1)
+        .select(
+            pl.col("Year").alias("year"),
+            "url",
+            "encoding_type",
+            "dim_type",
+            "hardness_type",
+        )
+    )
+
+
+@app.function(hide_code=True)
+def save_chart(chart: alt.Chart, name: str, **kwargs) -> pathlib.Path:
+    out = pathlib.Path(".") / f"{name}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    chart.save(out, "png", scale_factor=4, **kwargs)
+    return out
 
 
 @app.cell(hide_code=True)
-def _(Sequence, np, ty):
-    import plotly.figure_factory as ff
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
+def _(Sequence):
     def plot_multilabel_cm_with_annotations(
         multilabel_cm: np.ndarray,
         class_names: ty.Iterable[str] | None = None,
@@ -740,23 +1002,7 @@ def _(Sequence, np, ty):
 
         return fig
 
-    return go, plot_multilabel_cm_with_annotations
-
-
-@app.cell(hide_code=True)
-def _():
-    import itertools
-    import typing as ty
-
-    import altair as alt
-    import marimo as mo
-    import numpy as np
-    import polars as pl
-    import sklearn.metrics as skm
-    import sklearn.preprocessing as skprep
-    from tqdm.notebook import tqdm
-
-    return alt, itertools, mo, np, pl, skm, skprep, tqdm, ty
+    return (plot_multilabel_cm_with_annotations,)
 
 
 if __name__ == "__main__":

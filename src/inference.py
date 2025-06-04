@@ -314,7 +314,7 @@ def _(base64, client, pl):
 @app.cell(hide_code=True)
 def _(pathlib):
     # Constants
-    SYSTEM_PROMPT = pathlib.Path("sysprompt.md").read_text()
+    SYSTEM_PROMPT = pathlib.Path("src/sysprompt.md").read_text()
     MODELS = [
         "google_genai:gemini-2.0-flash",
         "google_genai:gemini-2.5-flash-preview-05-20",

@@ -1,6 +1,6 @@
-# Seeing Eye to AI? Probing Vision-Language Model Alignment with Human Expert Visual Grouping
+# Do Vision-Language Models See Visualizations Like Humans? Alignment in Chart Categorization
 
-This repository implements the research described in our poster submission **"Seeing Eye to AI? Probing Vision-Language Model Alignment with Human Expert Visual Grouping"**. The project investigates whether state-of-the-art Vision-Language Models (VLMs) can align with human-centric, stimuli-based categorization of data visualizations.
+This repository implements the research described in our submission to the IEEE VIS 25 poster track. The project investigates whether state-of-the-art Vision-Language Models (VLMs) can align with human-centric, stimuli-based categorization of data visualizations.
 
 ## Overview
 

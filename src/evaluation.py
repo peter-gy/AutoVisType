@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.13.14"
+__generated_with = "0.13.15"
 app = marimo.App(width="full", layout_file="layouts/evaluation.grid.json")
 
 with app.setup:
@@ -45,7 +45,7 @@ def _(DIFFICULTIES, FEATURES, MODELS, evaluate_model):
     return (evaluations,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(metrics_overview_df):
     metrics_overview_df
     return
@@ -59,15 +59,25 @@ def _(
     evaluations,
     metric_picker,
 ):
-    metrics_overview_df = construct_metrics_overview_df(evaluations).with_columns(
-        pl.col("provider_id").replace(
-            old=list(PROVIDER_ID_LABELS.keys()),
-            new=list(PROVIDER_ID_LABELS.values()),
-        ),
-        pl.col("model_id").replace(
-            old=list(MODEL_ID_LABELS.keys()),
-            new=list(MODEL_ID_LABELS.values()),
-        ),
+    metrics_overview_df = (
+        construct_metrics_overview_df(evaluations)
+        .with_columns(
+            pl.col("provider_id").replace(
+                old=list(PROVIDER_ID_LABELS.keys()),
+                new=list(PROVIDER_ID_LABELS.values()),
+            ),
+            pl.col("model_id").replace(
+                old=list(MODEL_ID_LABELS.keys()),
+                new=list(MODEL_ID_LABELS.values()),
+            ),
+            pl.col("feature").replace(
+                old=["dimensionality"],
+                new=["dim."],
+            ),
+        )
+        # difficulty_level==5 stands for aggregated performance over all other difficulty levels.
+        # We don't want to visualize those in this context as the comparison would be misleading
+        .filter(pl.col("difficulty_level") != 5)
     )
 
     metric = metric_picker.value
@@ -78,6 +88,7 @@ def _(
             x=alt.X(
                 "difficulty_level:N",
                 title="Difficulty",
+                axis=alt.Axis(labelAngle=0),
             ),
             y=alt.Y(
                 f"{metric}:Q",
@@ -90,33 +101,39 @@ def _(
                 scale=alt.Scale(
                     domain=list(PROVIDER_ID_LABELS.values()),
                     range=[
-                        "#d85140",
-                        "#1c46a9",
-                        "#ee782f",
                         "#75b9a1",
+                        "#DB4437",
+                        "#ee782f",
+                        "#17A9FD",
                         "#5442c7",
                     ],
                 ),
                 legend=alt.Legend(
+                    titleFontSize=16,
+                    labelFontSize=14,
                     orient="top",
                     direction="horizontal",
+                    offset=-20,
                 ),
             ),
             column=alt.Column(
                 "model_id:N",
                 title="Model",
-                sort={"field": "provider_id"},
+                sort=list(MODEL_ID_LABELS.values()),
                 header=alt.Header(
-                    titleFontSize=14,
-                    labelFontSize=12,
+                    titleFontSize=16,
+                    labelFontSize=13.5,
                 ),
             ),
             row=alt.Row(
                 "feature:N",
                 title="Predicted Feature",
+                sort=["purpose", "encoding", "dim."],
                 header=alt.Header(
-                    titleFontSize=14,
-                    labelFontSize=12,
+                    titleFontSize=16,
+                    labelFontSize=14,
+                    titlePadding=-5,
+                    labelPadding=5,
                 ),
             ),
             tooltip=[
@@ -126,7 +143,10 @@ def _(
                 alt.Tooltip(f"{metric}:Q", title=metric),
             ],
         )
-        .properties(width=90, height=50)
+        .properties(width=100, height=55)
+        .configure_view(
+            # strokeWidth=0.5,
+        )
     )
 
     save_chart(metrics_overview_chart, f"nogit/figures/metric-overview-{metric}")
@@ -155,17 +175,44 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
         ),
     )
 
+    def prepare_classification_accuracy_chart_df(
+        overview_df: pl.DataFrame,
+        feature: ty.Literal["purpose", "encoding", "dimensionality"],
+        metric: ty.Literal["precision", "recall", "f1-score"],
+    ) -> pl.DataFrame:
+        return (
+            overview_df.filter(feature=pl.lit(feature))
+            .group_by("provider_id", "model_id", "feature", "label")
+            .agg(pl.mean(metric))
+        )
+
     def create_classification_accuracy_chart(
         feature: ty.Literal["purpose", "encoding", "dimensionality"],
         metric: ty.Literal["precision", "recall", "f1-score"],
         classification_accuracy_overview_df: pl.DataFrame,
         rect_size: tuple[float, float] = (30, 30),
         chart_size: tuple[float, float] | None = None,
+        sort_cfg: dict | None = None,
+        title_cfg: dict | None = None,
+        axis_cfg: dict | None = None,
     ) -> alt.Chart:
-        df = classification_accuracy_overview_df.filter(feature=pl.lit(feature))
+        df = prepare_classification_accuracy_chart_df(
+            classification_accuracy_overview_df,
+            feature,
+            metric,
+        )
         num_rects_x = df.unique("model_id").height
         num_rects_y = df.unique("label").height
         rect_size_x, rect_size_y = rect_size
+
+        sort_cfg = sort_cfg or {}
+        title_cfg = title_cfg or {}
+        axis_cfg = axis_cfg or {}
+
+        def cfg(scope: dict, key: str, fallback):
+            if key in scope:
+                return scope[key]
+            return fallback
 
         return (
             alt.Chart(df)
@@ -173,21 +220,47 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
             .encode(
                 x=alt.X(
                     "model_id:N",
-                    title="Model",
-                    sort=alt.EncodingSortField(
-                        field=metric,
-                        op="mean",
-                        order="descending",
+                    title=cfg(title_cfg, "x", "Model"),
+                    sort=cfg(
+                        sort_cfg,
+                        "x",
+                        alt.EncodingSortField(
+                            field=metric,
+                            op="mean",
+                            order="descending",
+                        ),
                     ),
-                    axis=alt.Axis(labelAngle=-45),
+                    axis=cfg(
+                        axis_cfg,
+                        "x",
+                        alt.Axis(
+                            titleFontSize=14,
+                            labelFontSize=12,
+                            labelAngle=-45,
+                        ),
+                    ),
                 ),
                 y=alt.Y(
                     "label:N",
-                    title=feature.capitalize(),
-                    sort=alt.EncodingSortField(
-                        field=metric,
-                        op="mean",
-                        order="descending",
+                    title=cfg(title_cfg, "y", feature.capitalize()),
+                    sort=cfg(
+                        sort_cfg,
+                        "y",
+                        alt.EncodingSortField(
+                            field=metric,
+                            op="mean",
+                            order="descending",
+                        ),
+                    ),
+                    axis=cfg(
+                        axis_cfg,
+                        "y",
+                        alt.Axis(
+                            titleFontSize=14,
+                            labelFontSize=12,
+                            labelAngle=0,
+                            titlePadding=15,
+                        ),
                     ),
                 ),
                 color=alt.Color(
@@ -225,21 +298,22 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
                 "purpose",
                 "f1-score",
                 classification_accuracy_overview_df,
-                chart_size=(300, 150),
+                chart_size=(300, 175),
             ),
             create_classification_accuracy_chart(
                 "encoding",
                 "f1-score",
                 classification_accuracy_overview_df,
-                chart_size=(300, 150),
+                chart_size=(300, 175),
             ),
             create_classification_accuracy_chart(
                 "dimensionality",
                 "f1-score",
                 classification_accuracy_overview_df,
-                chart_size=(300, 150),
+                chart_size=(300, 175),
             ),
-        ]
+        ],
+        spacing=50,
     )
 
     save_chart(
@@ -248,6 +322,15 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
     )
 
     classification_accuracy_overview_chart
+    return (
+        classification_accuracy_overview_df,
+        create_classification_accuracy_chart,
+    )
+
+
+@app.cell
+def _(human_raw_df):
+    human_raw_df
     return
 
 
@@ -397,7 +480,8 @@ def _(evaluation):
             pl.from_dicts(overall_data)
             .with_columns(pl.col("difficulty").replace(pl.lit(None), pl.lit("all")))
             .with_columns(
-                difficulty_level=pl.col("difficulty").replace(
+                difficulty_level=pl.col("difficulty")
+                .replace(
                     {
                         "two_easy": 1,
                         "one_hard": 2,
@@ -406,6 +490,7 @@ def _(evaluation):
                         "all": 5,
                     }
                 )
+                .cast(pl.UInt8)
             )
             .with_columns(pl.col("model_id").str.split(":"))
             .with_columns(
@@ -767,27 +852,32 @@ def _(human_df):
 @app.cell(hide_code=True)
 def _():
     PROVIDER_ID_LABELS = {
-        "google_genai": "Google GenAI",
-        "meta-llama": "Meta Llama",
-        "mistralai": "Mistral AI",
         "openai": "OpenAI",
+        "google_genai": "Google GenAI",
+        "mistralai": "Mistral AI",
+        "meta-llama": "Meta Llama",
         "qwen": "Qwen",
     }
 
     MODEL_ID_LABELS = {
-        "gemini-2.0-flash": "Gemini 2.0 Flash",
-        "gemini-2.5-flash-preview-05-20": "Gemini 2.5 Flash",
-        "gemini-2.5-pro-preview-05-06": "Gemini 2.5 Pro",
+        # OpenAI
+        "o4-mini": "O4 Mini",
         "gpt-4.1": "GPT-4.1",
         "gpt-4.1-mini": "GPT-4.1 Mini",
         "gpt-4.1-nano": "GPT-4.1 Nano",
+        # Google
+        "gemini-2.5-pro-preview-05-06": "Gemini 2.5 Pro",
+        "gemini-2.5-flash-preview-05-20": "Gemini 2.5 Flash",
+        "gemini-2.0-flash": "Gemini 2.0 Flash",
+        # Mistral
+        "pixtral-large-2411": "Pixtral Large",
+        "mistral-medium-3": "Mistral Medium 3",
+        "mistral-small-3.1-24b-instruct": "Mistral Small 3.1 24B",
+        # Meta
         "llama-4-maverick": "Llama 4 Maverick",
         "llama-4-scout": "Llama 4 Scout",
-        "mistral-medium-3": "Mistral Medium 3",
-        "mistral-small-3.1-24b-instruct": "Mistral Small 3.1 (24B)",
-        "o4-mini": "O4 Mini",
-        "pixtral-large-2411": "Pixtral Large",
-        "qwen2.5-vl-32b-instruct": "Qwen 2.5 VL (32B)",
+        # Qwen
+        "qwen2.5-vl-32b-instruct": "Qwen 2.5 VL 32B",
     }
     return MODEL_ID_LABELS, PROVIDER_ID_LABELS
 
@@ -797,7 +887,40 @@ def _():
     human_raw_df = read_human_raw_df()
     human_df = construct_human_df(human_raw_df)
     ai_df = read_ai_df()
-    return ai_df, human_df
+    return ai_df, human_df, human_raw_df
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(base_df):
+    base_df.explode("encoding").group_by("encoding").agg(pl.len()).sort(
+        "len", descending=True
+    ).to_dicts()
+    return
+
+
+@app.cell
+def _(base_df):
+    base_df.explode("dimensionality").group_by("dimensionality").agg(pl.len()).sort(
+        "len", descending=True
+    ).to_dicts()
+    return
+
+
+@app.cell
+def _(base_df):
+    base_df.group_by("purpose").agg(pl.len()).sort("len", descending=True).to_dicts()
+    return
+
+
+@app.cell
+def _(ai_df, human_df):
+    base_df = human_df.join(ai_df.select("url").unique("url"), on="url", how="right")
+    return (base_df,)
 
 
 @app.function(hide_code=True)
@@ -878,7 +1001,7 @@ def read_human_raw_df(
 def save_chart(chart: alt.Chart, name: str, **kwargs) -> pathlib.Path:
     out = pathlib.Path(".") / f"{name}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
-    chart.save(out, "png", scale_factor=4, **kwargs)
+    chart.save(out, "png", scale_factor=8, **kwargs)
     return out
 
 
@@ -1003,6 +1126,46 @@ def _(Sequence):
         return fig
 
     return (plot_multilabel_cm_with_annotations,)
+
+
+@app.cell(hide_code=True)
+def _(
+    classification_accuracy_overview_df,
+    create_classification_accuracy_chart,
+):
+    RECT_SIZE = (22.5, 22.5)
+
+    alt.vconcat(
+        *[
+            create_classification_accuracy_chart(
+                "purpose",
+                "f1-score",
+                classification_accuracy_overview_df,
+                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
+                title_cfg={"x": None},
+                axis_cfg={"x": None},
+                rect_size=RECT_SIZE,
+            ),
+            create_classification_accuracy_chart(
+                "encoding",
+                "f1-score",
+                classification_accuracy_overview_df,
+                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
+                title_cfg={"x": None},
+                axis_cfg={"x": None},
+                rect_size=RECT_SIZE,
+            ),
+            create_classification_accuracy_chart(
+                "dimensionality",
+                "f1-score",
+                classification_accuracy_overview_df,
+                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
+                rect_size=RECT_SIZE,
+            ),
+        ],
+        spacing=5,
+    )
+    return
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.13.14"
+__generated_with = "0.13.15"
 app = marimo.App(width="medium")
 
 
@@ -364,7 +364,6 @@ def _():
     import tenacity as tc
     from langchain.chat_models import init_chat_model
     from langchain_core.language_models import BaseChatModel
-    from langfuse.callback import CallbackHandler as LangfuseCallbackHandler
     from openai import RateLimitError
 
     # Cache Config

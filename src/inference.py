@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.13.15"
+__generated_with = "0.14.17"
 app = marimo.App(width="medium")
 
 
@@ -46,7 +46,7 @@ def _(Analysis, init_llm, model_picker):
     return llm, model_name
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(cs, pl, vispub_df):
     # Getting an image for each encoding for each dimensionality for each year bin
     sample_df = (
@@ -398,6 +398,36 @@ def _():
         tc,
         ty,
     )
+
+
+@app.cell
+def _():
+    import sqlalchemy
+
+    DATABASE_URL = "sqlite:///.cache/langchain.db"
+    engine = sqlalchemy.create_engine(DATABASE_URL)
+    return (engine,)
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(engine, full_llm_cache, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM full_llm_cache LIMIT 10
+        """,
+        engine=engine,
+    )
+    return
+
+
+@app.cell
+def _():
+    return
 
 
 if __name__ == "__main__":

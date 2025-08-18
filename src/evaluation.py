@@ -1,9 +1,9 @@
 import marimo
 
-__generated_with = "0.13.15"
-app = marimo.App(width="full", layout_file="layouts/evaluation.grid.json")
+__generated_with = "0.14.17"
+app = marimo.App(width="columns", layout_file="layouts/evaluation.grid.json")
 
-with app.setup:
+with app.setup(hide_code=True):
     import itertools
     import pathlib
     import typing as ty
@@ -43,12 +43,6 @@ def _(DIFFICULTIES, FEATURES, MODELS, evaluate_model):
         for config in tqdm(evaluation_configs, desc="🔬 Running Evaluations")
     ]
     return (evaluations,)
-
-
-@app.cell(hide_code=True)
-def _(metrics_overview_df):
-    metrics_overview_df
-    return
 
 
 @app.cell(hide_code=True)
@@ -158,6 +152,12 @@ def _(
         ]
     )
     return (metrics_overview_df,)
+
+
+@app.cell(hide_code=True)
+def _(metrics_overview_df):
+    metrics_overview_df
+    return
 
 
 @app.cell(hide_code=True)
@@ -328,18 +328,50 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
     )
 
 
-@app.cell
-def _(human_raw_df):
-    human_raw_df
+@app.cell(hide_code=True)
+def _(
+    classification_accuracy_overview_df,
+    create_classification_accuracy_chart,
+):
+    RECT_SIZE = (22.5, 22.5)
+
+    alt.vconcat(
+        *[
+            create_classification_accuracy_chart(
+                "purpose",
+                "f1-score",
+                classification_accuracy_overview_df,
+                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
+                title_cfg={"x": None},
+                axis_cfg={"x": None},
+                rect_size=RECT_SIZE,
+            ),
+            create_classification_accuracy_chart(
+                "encoding",
+                "f1-score",
+                classification_accuracy_overview_df,
+                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
+                title_cfg={"x": None},
+                axis_cfg={"x": None},
+                rect_size=RECT_SIZE,
+            ),
+            create_classification_accuracy_chart(
+                "dimensionality",
+                "f1-score",
+                classification_accuracy_overview_df,
+                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
+                rect_size=RECT_SIZE,
+            ),
+        ],
+        spacing=5,
+    )
     return
 
 
-@app.cell(hide_code=True)
-def _(metrics):
-    metric_picker = mo.ui.dropdown(
-        sorted(metrics), label="Metric", value=sorted(metrics)[0]
-    )
-    return (metric_picker,)
+@app.cell(column=1, hide_code=True)
+def _():
+    mo.md(r"""# Metrics""")
+    return
 
 
 @app.cell(hide_code=True)
@@ -354,12 +386,6 @@ def _(DIFFICULTIES, FEATURES, MODELS):
     )
     mo.hstack([model_picker, feature_picker, difficulty_picker])
     return difficulty_picker, feature_picker, model_picker
-
-
-@app.cell(hide_code=True)
-def _(evaluation):
-    evaluation.preview_df
-    return
 
 
 @app.cell(hide_code=True)
@@ -427,35 +453,26 @@ def _(evaluation):
     return
 
 
-@app.function(hide_code=True)
-def construct_classification_accuracy_overview_df(
-    evaluations: list[dict],
-) -> pl.DataFrame:
-    return (
-        pl.from_dicts(
-            itertools.chain.from_iterable(
-                [
-                    [
-                        {
-                            **item["config"],
-                            "label": key,
-                            **value,
-                        }
-                        for key, value in item[
-                            "evaluation"
-                        ].classification_report_dict.items()
-                        if not key.endswith(" avg")
-                    ]
-                    for item in evaluations
-                ]
-            )
+@app.cell(hide_code=True)
+def _(difficulty_picker, evaluations, feature_picker, model_picker):
+    # Access UI element values
+    model_id = model_picker.value
+    feature = feature_picker.value
+    difficulty = difficulty_picker.value
+
+    # Look up pre-computed evaluation based on UI config
+    evaluation = [
+        e
+        for e in evaluations
+        if all(
+            [
+                e["config"]["model_id"] == model_id,
+                e["config"]["feature"] == feature,
+                e["config"]["difficulty"] == difficulty,
+            ]
         )
-        .with_columns(pl.col("model_id").str.split(":"))
-        .with_columns(
-            provider_id=pl.col("model_id").list.get(0),
-            model_id=pl.col("model_id").list.get(1),
-        )
-    )
+    ][0]["evaluation"]
+    return evaluation, feature, model_id
 
 
 @app.cell(hide_code=True)
@@ -514,28 +531,6 @@ def _(evaluation):
 
     metrics = evaluation.metrics_df.select("metric").to_numpy().squeeze()
     return construct_metrics_overview_df, metrics
-
-
-@app.cell(hide_code=True)
-def _(difficulty_picker, evaluations, feature_picker, model_picker):
-    # Access UI element values
-    model_id = model_picker.value
-    feature = feature_picker.value
-    difficulty = difficulty_picker.value
-
-    # Look up pre-computed evaluation based on UI config
-    evaluation = [
-        e
-        for e in evaluations
-        if all(
-            [
-                e["config"]["model_id"] == model_id,
-                e["config"]["feature"] == feature,
-                e["config"]["difficulty"] == difficulty,
-            ]
-        )
-    ][0]["evaluation"]
-    return evaluation, feature, model_id
 
 
 @app.cell(hide_code=True)
@@ -613,6 +608,356 @@ def _(
         )
 
     return (evaluate_model,)
+
+
+@app.cell(hide_code=True)
+def _(metrics):
+    metric_picker = mo.ui.dropdown(
+        sorted(metrics), label="Metric", value=sorted(metrics)[0]
+    )
+    return (metric_picker,)
+
+
+@app.cell(hide_code=True)
+def _(ModelId, ai_df, human_df):
+    def construct_eval_df(
+        model_id: ModelId,
+        ai_df: pl.DataFrame = ai_df,
+        human_df: pl.DataFrame = human_df,
+    ) -> pl.DataFrame:
+        provider, model = model_id.split(":")
+        eval_df = (
+            ai_df.filter(provider=provider, model=model)
+            .select(
+                "url",
+                "purpose",
+                "encoding",
+                "dimensionality",
+            )
+            .join(
+                human_df,
+                on="url",
+                how="left",
+                suffix="_true",
+            )
+            # Convert scalar `purpose` to singleton list
+            .with_columns(
+                pl.concat_list("purpose"),
+                pl.concat_list("purpose_true"),
+            )
+        )
+        list_columns = eval_df.select(pl.col(pl.List(pl.String))).columns
+
+        # Data massage & spa time: prepare features for downstream multi-label eval
+        eval_df = (
+            eval_df
+            # Replace empty lists with singleton list ["none"]
+            .with_columns(
+                *[
+                    pl.when(pl.col(col).list.len() == 0)
+                    .then(pl.lit(["none"]))
+                    .otherwise(col)
+                    .alias(col)
+                    for col in list_columns
+                ]
+            )
+            # Replace scalar Nones with singleton list ["none"]
+            .with_columns(
+                *[
+                    pl.when(pl.col(col).is_null())
+                    .then(pl.lit(["none"]))
+                    .otherwise(col)
+                    .alias(col)
+                    for col in list_columns
+                ]
+            )
+            # Replace None values within lists with "none" label
+            .with_columns(
+                pl.col(pl.List(pl.String)).list.eval(
+                    pl.when(pl.element().is_null())
+                    .then(pl.lit("none"))
+                    .otherwise(pl.element())
+                )
+            )
+        )
+        return eval_df.select(
+            "url",
+            "difficulty",
+            "purpose",
+            "purpose_true",
+            "encoding",
+            "encoding_true",
+            "dimensionality",
+            "dimensionality_true",
+        )
+
+    def enumerate_unique_labels(df: pl.DataFrame, list_col: str) -> list[str]:
+        def _enumerate(col: str) -> set[str]:
+            return set(
+                df.select(col)
+                .explode(col)
+                .unique(col)
+                .sort(col)
+                .to_numpy()
+                .squeeze()
+                .tolist()
+            )
+
+        return sorted(_enumerate(list_col).union(_enumerate(list_col + "_true")))
+
+    return construct_eval_df, enumerate_unique_labels
+
+
+@app.cell(hide_code=True)
+def _():
+    PROVIDER_ID_LABELS = {
+        "openai": "OpenAI",
+        "google_genai": "Google GenAI",
+        "mistralai": "Mistral AI",
+        "meta-llama": "Meta Llama",
+        "qwen": "Qwen",
+    }
+
+    MODEL_ID_LABELS = {
+        # OpenAI
+        "o4-mini": "O4 Mini",
+        "gpt-4.1": "GPT-4.1",
+        "gpt-4.1-mini": "GPT-4.1 Mini",
+        "gpt-4.1-nano": "GPT-4.1 Nano",
+        # Google
+        "gemini-2.5-pro-preview-05-06": "Gemini 2.5 Pro",
+        "gemini-2.5-flash-preview-05-20": "Gemini 2.5 Flash",
+        "gemini-2.0-flash": "Gemini 2.0 Flash",
+        # Mistral
+        "pixtral-large-2411": "Pixtral Large",
+        "mistral-medium-3": "Mistral Medium 3",
+        "mistral-small-3.1-24b-instruct": "Mistral Small 3.1 24B",
+        # Meta
+        "llama-4-maverick": "Llama 4 Maverick",
+        "llama-4-scout": "Llama 4 Scout",
+        # Qwen
+        "qwen2.5-vl-32b-instruct": "Qwen 2.5 VL 32B",
+    }
+    return MODEL_ID_LABELS, PROVIDER_ID_LABELS
+
+
+@app.cell(hide_code=True)
+def _(human_df):
+    ModelId = ty.Literal[
+        "google_genai:gemini-2.0-flash",
+        "google_genai:gemini-2.5-flash-preview-05-20",
+        "google_genai:gemini-2.5-pro-preview-05-06",
+        "meta-llama:llama-4-maverick",
+        "meta-llama:llama-4-scout",
+        "mistralai:mistral-medium-3",
+        "mistralai:mistral-small-3.1-24b-instruct",
+        "mistralai:pixtral-large-2411",
+        "openai:gpt-4.1",
+        "openai:gpt-4.1-mini",
+        "openai:gpt-4.1-nano",
+        "openai:o4-mini",
+        "qwen:qwen2.5-vl-32b-instruct",
+    ]
+    MODELS = list(ty.get_args(ModelId))
+    FEATURES = ["purpose", "encoding", "dimensionality"]
+    DIFFICULTIES = (
+        human_df.select("difficulty")
+        .unique("difficulty")
+        .drop_nulls()
+        .sort("difficulty")
+        .to_numpy()
+        .squeeze()
+        .tolist()
+    )
+    return DIFFICULTIES, FEATURES, MODELS, ModelId
+
+
+@app.cell(column=2, hide_code=True)
+def _():
+    mo.md(r"""# Exploration""")
+    return
+
+
+@app.cell(column=3, hide_code=True)
+def _():
+    mo.md(r"""# Data""")
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Human Labels vs. VLM Labels
+
+    This dataset lines up the human-created labels against the VLM-created labels for `purpose`, `encoding` and `dimensionality` of visualizations across all the probed models.
+    """
+    )
+    return
+
+
+@app.cell
+def _(ai_df, human_df, metrics_series):
+    comparison_df = (
+        human_df.join(
+            ai_df,
+            on="url",
+            how="right",
+            suffix="_predicted",
+        )
+        .with_columns(
+            pl.concat_list("purpose"),
+            pl.concat_list("purpose_predicted"),
+        )
+        .select(
+            "year",
+            "url",
+            "purpose",
+            "purpose_predicted",
+            metrics_series("purpose"),
+            pl.col("encoding").list.sort(),
+            pl.col("encoding_predicted").list.sort(),
+            metrics_series("encoding"),
+            pl.col("dimensionality").list.sort(),
+            pl.col("dimensionality_predicted").list.sort(),
+            metrics_series("dimensionality"),
+            "provider",
+            "model",
+        )
+    )
+    comparison_df
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    def compute_individual_metrics(struct: dict | None):
+        if struct is None:
+            return None
+
+        real: set[str] = set(struct["real"]) if struct["real"] else set()
+        predicted: set[str] = set(struct["predicted"]) if struct["predicted"] else set()
+        tp = len(real & predicted)
+        precision = tp / len(predicted) if len(predicted) > 0 else 0
+        recall = tp / len(real) if len(real) > 0 else 0
+        return {
+            "precision": float(precision),
+            "recall": float(recall),
+        }
+
+    def metrics_series(attribute: str) -> pl.Series:
+        return (
+            pl.struct(
+                real=attribute,
+                predicted=f"{attribute}_predicted",
+            )
+            .map_elements(
+                compute_individual_metrics,
+                return_dtype=pl.Struct(
+                    {
+                        "precision": pl.Float64,
+                        "recall": pl.Float64,
+                    }
+                ),
+            )
+            .alias(f"{attribute}_metrics")
+        )
+
+    return (metrics_series,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Raw Expert-Labeled Dataset
+
+    This is the original, unprocessed dataset coming from a subset of VIS30K annotated by experts, loaded from [VISImageNavigator](https://visimagenavigator.github.io/index.html).
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    human_raw_df = read_human_raw_df()
+    human_raw_df
+    return (human_raw_df,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Processed Expert-labeled Dataset
+
+    The original dataset had to be pre-processed to split the `purpose` and `encoding` from the `encoding_type` column.
+    """
+    )
+    return
+
+
+@app.cell
+def _(human_raw_df):
+    human_df = construct_human_df(human_raw_df)
+    human_df
+    return (human_df,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## VLM-Annotated Dataset
+
+    This dataset holds the inference results across all probed models. Each model was prompted to determine the `purpose`, `encoding` and `dimensionality` of the visualizations.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    ai_df = read_ai_df()
+    ai_df
+    return (ai_df,)
+
+
+@app.cell(column=4, hide_code=True)
+def _():
+    mo.md(r"""# Library""")
+    return
+
+
+@app.function(hide_code=True)
+def construct_classification_accuracy_overview_df(
+    evaluations: list[dict],
+) -> pl.DataFrame:
+    return (
+        pl.from_dicts(
+            itertools.chain.from_iterable(
+                [
+                    [
+                        {
+                            **item["config"],
+                            "label": key,
+                            **value,
+                        }
+                        for key, value in item[
+                            "evaluation"
+                        ].classification_report_dict.items()
+                        if not key.endswith(" avg")
+                    ]
+                    for item in evaluations
+                ]
+            )
+        )
+        .with_columns(pl.col("model_id").str.split(":"))
+        .with_columns(
+            provider_id=pl.col("model_id").list.get(0),
+            model_id=pl.col("model_id").list.get(1),
+        )
+    )
 
 
 @app.function(hide_code=True)
@@ -728,210 +1073,6 @@ def compute_metrics_df(
     return pl.from_dicts(metrics)
 
 
-@app.cell(hide_code=True)
-def _(ModelId, ai_df, human_df):
-    def construct_eval_df(
-        model_id: ModelId,
-        ai_df: pl.DataFrame = ai_df,
-        human_df: pl.DataFrame = human_df,
-    ) -> pl.DataFrame:
-        provider, model = model_id.split(":")
-        eval_df = (
-            ai_df.filter(provider=provider, model=model)
-            .select(
-                "url",
-                "purpose",
-                "encoding",
-                "dimensionality",
-            )
-            .join(
-                human_df,
-                on="url",
-                how="left",
-                suffix="_true",
-            )
-            # Convert scalar `purpose` to singleton list
-            .with_columns(
-                pl.concat_list("purpose"),
-                pl.concat_list("purpose_true"),
-            )
-        )
-        list_columns = eval_df.select(pl.col(pl.List(pl.String))).columns
-
-        # Data massage & spa time: prepare features for downstream multi-label eval
-        eval_df = (
-            eval_df
-            # Replace empty lists with singleton list ["none"]
-            .with_columns(
-                *[
-                    pl.when(pl.col(col).list.len() == 0)
-                    .then(pl.lit(["none"]))
-                    .otherwise(col)
-                    .alias(col)
-                    for col in list_columns
-                ]
-            )
-            # Replace scalar Nones with singleton list ["none"]
-            .with_columns(
-                *[
-                    pl.when(pl.col(col).is_null())
-                    .then(pl.lit(["none"]))
-                    .otherwise(col)
-                    .alias(col)
-                    for col in list_columns
-                ]
-            )
-            # Replace None values within lists with "none" label
-            .with_columns(
-                pl.col(pl.List(pl.String)).list.eval(
-                    pl.when(pl.element().is_null())
-                    .then(pl.lit("none"))
-                    .otherwise(pl.element())
-                )
-            )
-        )
-        return eval_df.select(
-            "url",
-            "difficulty",
-            "purpose",
-            "purpose_true",
-            "encoding",
-            "encoding_true",
-            "dimensionality",
-            "dimensionality_true",
-        )
-
-    def enumerate_unique_labels(df: pl.DataFrame, list_col: str) -> list[str]:
-        def _enumerate(col: str) -> set[str]:
-            return set(
-                df.select(col)
-                .explode(col)
-                .unique(col)
-                .sort(col)
-                .to_numpy()
-                .squeeze()
-                .tolist()
-            )
-
-        return sorted(_enumerate(list_col).union(_enumerate(list_col + "_true")))
-
-    return construct_eval_df, enumerate_unique_labels
-
-
-@app.cell(hide_code=True)
-def _(human_df):
-    ModelId = ty.Literal[
-        "google_genai:gemini-2.0-flash",
-        "google_genai:gemini-2.5-flash-preview-05-20",
-        "google_genai:gemini-2.5-pro-preview-05-06",
-        "meta-llama:llama-4-maverick",
-        "meta-llama:llama-4-scout",
-        "mistralai:mistral-medium-3",
-        "mistralai:mistral-small-3.1-24b-instruct",
-        "mistralai:pixtral-large-2411",
-        "openai:gpt-4.1",
-        "openai:gpt-4.1-mini",
-        "openai:gpt-4.1-nano",
-        "openai:o4-mini",
-        "qwen:qwen2.5-vl-32b-instruct",
-    ]
-    MODELS = list(ty.get_args(ModelId))
-    FEATURES = ["purpose", "encoding", "dimensionality"]
-    DIFFICULTIES = (
-        human_df.select("difficulty")
-        .unique("difficulty")
-        .drop_nulls()
-        .sort("difficulty")
-        .to_numpy()
-        .squeeze()
-        .tolist()
-    )
-    return DIFFICULTIES, FEATURES, MODELS, ModelId
-
-
-@app.cell(hide_code=True)
-def _():
-    PROVIDER_ID_LABELS = {
-        "openai": "OpenAI",
-        "google_genai": "Google GenAI",
-        "mistralai": "Mistral AI",
-        "meta-llama": "Meta Llama",
-        "qwen": "Qwen",
-    }
-
-    MODEL_ID_LABELS = {
-        # OpenAI
-        "o4-mini": "O4 Mini",
-        "gpt-4.1": "GPT-4.1",
-        "gpt-4.1-mini": "GPT-4.1 Mini",
-        "gpt-4.1-nano": "GPT-4.1 Nano",
-        # Google
-        "gemini-2.5-pro-preview-05-06": "Gemini 2.5 Pro",
-        "gemini-2.5-flash-preview-05-20": "Gemini 2.5 Flash",
-        "gemini-2.0-flash": "Gemini 2.0 Flash",
-        # Mistral
-        "pixtral-large-2411": "Pixtral Large",
-        "mistral-medium-3": "Mistral Medium 3",
-        "mistral-small-3.1-24b-instruct": "Mistral Small 3.1 24B",
-        # Meta
-        "llama-4-maverick": "Llama 4 Maverick",
-        "llama-4-scout": "Llama 4 Scout",
-        # Qwen
-        "qwen2.5-vl-32b-instruct": "Qwen 2.5 VL 32B",
-    }
-    return MODEL_ID_LABELS, PROVIDER_ID_LABELS
-
-
-@app.cell(hide_code=True)
-def _():
-    human_raw_df = read_human_raw_df()
-    human_df = construct_human_df(human_raw_df)
-    ai_df = read_ai_df()
-    return ai_df, human_df, human_raw_df
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _(base_df):
-    base_df.explode("encoding").group_by("encoding").agg(pl.len()).sort(
-        "len", descending=True
-    ).to_dicts()
-    return
-
-
-@app.cell
-def _(base_df):
-    base_df.explode("dimensionality").group_by("dimensionality").agg(pl.len()).sort(
-        "len", descending=True
-    ).to_dicts()
-    return
-
-
-@app.cell
-def _(base_df):
-    base_df.group_by("purpose").agg(pl.len()).sort("len", descending=True).to_dicts()
-    return
-
-
-@app.cell
-def _(ai_df, human_df):
-    base_df = human_df.join(ai_df.select("url").unique("url"), on="url", how="right")
-    return (base_df,)
-
-
-@app.function(hide_code=True)
-def read_ai_df() -> pl.DataFrame:
-    return pl.read_parquet(
-        "data/results/provider=*/model=*/analysis.parquet",
-        glob=True,
-        hive_partitioning=True,
-    ).drop("error")
-
-
 @app.function(hide_code=True)
 def construct_human_df(human_raw_df: pl.DataFrame) -> pl.DataFrame:
     return (
@@ -981,6 +1122,23 @@ def construct_human_df(human_raw_df: pl.DataFrame) -> pl.DataFrame:
 
 
 @app.function(hide_code=True)
+def save_chart(chart: alt.Chart, name: str, **kwargs) -> pathlib.Path:
+    out = pathlib.Path(".") / f"{name}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    chart.save(out, "png", scale_factor=8, **kwargs)
+    return out
+
+
+@app.function(hide_code=True)
+def read_ai_df() -> pl.DataFrame:
+    return pl.read_parquet(
+        "data/results/provider=*/model=*/analysis.parquet",
+        glob=True,
+        hive_partitioning=True,
+    ).drop("error")
+
+
+@app.function(hide_code=True)
 def read_human_raw_df(
     vispubdata_csv_url: str = "https://media.githubusercontent.com/media/peter-gy/AutoVisType/refs/heads/main/data/vispubData30_updated_07112024.csv",
 ) -> pl.DataFrame:
@@ -995,14 +1153,6 @@ def read_human_raw_df(
             "hardness_type",
         )
     )
-
-
-@app.function(hide_code=True)
-def save_chart(chart: alt.Chart, name: str, **kwargs) -> pathlib.Path:
-    out = pathlib.Path(".") / f"{name}.png"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    chart.save(out, "png", scale_factor=8, **kwargs)
-    return out
 
 
 @app.cell(hide_code=True)
@@ -1126,46 +1276,6 @@ def _(Sequence):
         return fig
 
     return (plot_multilabel_cm_with_annotations,)
-
-
-@app.cell(hide_code=True)
-def _(
-    classification_accuracy_overview_df,
-    create_classification_accuracy_chart,
-):
-    RECT_SIZE = (22.5, 22.5)
-
-    alt.vconcat(
-        *[
-            create_classification_accuracy_chart(
-                "purpose",
-                "f1-score",
-                classification_accuracy_overview_df,
-                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
-                title_cfg={"x": None},
-                axis_cfg={"x": None},
-                rect_size=RECT_SIZE,
-            ),
-            create_classification_accuracy_chart(
-                "encoding",
-                "f1-score",
-                classification_accuracy_overview_df,
-                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
-                title_cfg={"x": None},
-                axis_cfg={"x": None},
-                rect_size=RECT_SIZE,
-            ),
-            create_classification_accuracy_chart(
-                "dimensionality",
-                "f1-score",
-                classification_accuracy_overview_df,
-                sort_cfg={"x": alt.Undefined, "y": alt.Undefined},
-                rect_size=RECT_SIZE,
-            ),
-        ],
-        spacing=5,
-    )
-    return
 
 
 if __name__ == "__main__":

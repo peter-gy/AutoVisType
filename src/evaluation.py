@@ -151,7 +151,7 @@ def _(
             metrics_overview_chart,
         ]
     )
-    return (metrics_overview_df,)
+    return metric, metrics_overview_df
 
 
 @app.cell(hide_code=True)
@@ -325,6 +325,7 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, evaluations):
     return (
         classification_accuracy_overview_df,
         create_classification_accuracy_chart,
+        prepare_classification_accuracy_chart_df,
     )
 
 
@@ -730,8 +731,8 @@ def _():
         "gemini-2.0-flash": "Gemini 2.0 Flash",
         # Mistral
         "pixtral-large-2411": "Pixtral Large",
-        "mistral-medium-3": "Mistral Medium 3",
-        "mistral-small-3.1-24b-instruct": "Mistral Small 3.1 24B",
+        "mistral-medium-3": "Mistral M. 3",
+        "mistral-small-3.1-24b-instruct": "Mistral S. 3.1 24B",
         # Meta
         "llama-4-maverick": "Llama 4 Maverick",
         "llama-4-scout": "Llama 4 Scout",
@@ -774,7 +775,423 @@ def _(human_df):
 
 @app.cell(column=2, hide_code=True)
 def _():
-    mo.md(r"""# Exploration""")
+    mo.md(r"""# Poster Components""")
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Do Bigger Models Alays Perform Better?
+
+    Examples below show instances where smaller models of the same family showed better alignment with human experts than the bigger models.
+    """
+    )
+    return
+
+
+@app.cell
+def _(comparison_df):
+    small_beats_big_demo = (
+        "https://ivcl.jiangsn.com/VIS30K/Images/2010/InfoVisJ.1182.2.png"
+    )
+
+    comparison_df.filter(
+        (
+            # (pl.col("model").is_in([BIG_MODEL, SMALL_MODEL])) &
+            pl.col("url") == small_beats_big_demo
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(comparison_df):
+    BIG_MODEL = "gpt-4.1"
+    SMALL_MODEL = "gpt-4.1-mini"
+    (
+        comparison_df.filter(
+            (pl.col("model").is_in([BIG_MODEL, SMALL_MODEL]))
+            # Human expert explicitly assigned an unambigious "encoding"
+            & (~pl.col("encoding").list.contains(pl.lit(None)))
+            & (~pl.col("encoding").list.contains(pl.lit("others")))
+        )
+        .sort("year", "url", descending=True)
+        .pivot(
+            "model",
+            index=["year", "url", "encoding"],
+            values=[
+                "encoding_predicted",
+                "encoding_metrics",
+            ],
+        )
+        # Looking for all instances where the smaller model performed better than the bigger one
+        .filter(
+            (
+                pl.col(f"encoding_metrics_{SMALL_MODEL}").struct.field("precision")
+                > pl.col(f"encoding_metrics_{BIG_MODEL}").struct.field("precision")
+            )
+            & (
+                pl.col(f"encoding_metrics_{SMALL_MODEL}").struct.field("recall")
+                > pl.col(f"encoding_metrics_{BIG_MODEL}").struct.field("recall")
+            )
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Consensus in Failure, Chaos in Specifics
+
+    Examples below show instances where flagship models all failed in perfect recognition of encoding, but they did so differently.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(comparison_df):
+    # Hand-picked example
+    different_failures_demo_pick = (
+        "https://ivcl.jiangsn.com/VIS30K/Images/2020/SciVisJ.806.7.png"
+    )
+    (
+        comparison_df.filter(
+            (
+                pl.col("url") == different_failures_demo_pick
+                # & (pl.col("model").is_in(FLAGSHIP_MODELS))
+            )
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(FLAGSHIP_MODELS, comparison_df):
+    (
+        comparison_df.filter(
+            # Model recognized "purpose" perfectly
+            (pl.col("purpose_metrics").struct.field("precision") == 1.0)
+            & (pl.col("purpose_metrics").struct.field("recall") == 1.0)
+            # But it did not recognize "encoding" perfectly
+            & (pl.col("encoding_metrics").struct.field("precision") != 1.0)
+            & (pl.col("encoding_metrics").struct.field("recall") != 1.0)
+            # Even though human expert explicitly assigned an unambigious "encoding"
+            & (~pl.col("encoding").list.contains(pl.lit(None)))
+            & (~pl.col("encoding").list.contains(pl.lit("others")))
+            # Even though model is big and smart
+            & (pl.col("model").is_in(FLAGSHIP_MODELS))
+        ).sort("year", descending=True)
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## The "AI Vision Test"
+
+    The items below are instances where a flagship model such as Gemini 2.5 Pro, GPT 4.1 or O4-mini failed to properly recognize the `purpose` and `encoding` of an image, even though experts were able to categorize them without ambiguity.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(FLAGSHIP_MODELS, comparison_df):
+    # Hand-picked example
+    ai_vision_test_demo_pick = (
+        "https://ivcl.jiangsn.com/VIS30K/Images/2010/VisJ.1291.9.png"
+    )
+    (
+        comparison_df.filter(
+            (pl.col("url") == ai_vision_test_demo_pick)
+            & (pl.col("model").is_in(FLAGSHIP_MODELS))
+        )
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(FLAGSHIP_MODELS, comparison_df):
+    (
+        comparison_df.filter(
+            # Model did not recognize "purpose" perfectly
+            (pl.col("purpose_metrics").struct.field("precision") != 1.0)
+            & (pl.col("purpose_metrics").struct.field("recall") != 1.0)
+            # Model did not recognize "encoding" perfectly
+            & (pl.col("encoding_metrics").struct.field("precision") != 1.0)
+            & (pl.col("encoding_metrics").struct.field("recall") != 1.0)
+            # Even though human expert explicitly assigned an unambigious "encoding"
+            & (~pl.col("encoding").list.contains(pl.lit(None)))
+            & (~pl.col("encoding").list.contains(pl.lit("others")))
+            # Even though model is big and smart
+            & (pl.col("model").is_in(FLAGSHIP_MODELS))
+        ).sort("year", descending=True)
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    FLAGSHIP_MODELS = [
+        "gemini-2.5-pro-preview-05-06",
+        "gpt-4.1",
+        "o4-mini",
+    ]
+    return (FLAGSHIP_MODELS,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""## Per-Encoding F1-Score""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(
+    classification_accuracy_overview_df,
+    create_classification_accuracy_chart_for_poster,
+):
+    create_classification_accuracy_chart_for_poster(
+        "encoding",
+        "f1-score",
+        classification_accuracy_overview_df,
+        chart_size=(1.0 * 450, 1.0 * 500),
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(prepare_classification_accuracy_chart_df):
+    def create_classification_accuracy_chart_for_poster(
+        feature: ty.Literal["purpose", "encoding", "dimensionality"],
+        metric: ty.Literal["precision", "recall", "f1-score"],
+        classification_accuracy_overview_df: pl.DataFrame,
+        rect_size: tuple[float, float] = (30, 30),
+        chart_size: tuple[float, float] | None = None,
+        sort_cfg: dict | None = None,
+        title_cfg: dict | None = None,
+        axis_cfg: dict | None = None,
+    ) -> alt.Chart:
+        df = prepare_classification_accuracy_chart_df(
+            classification_accuracy_overview_df,
+            feature,
+            metric,
+        )
+        num_rects_x = df.unique("model_id").height
+        num_rects_y = df.unique("label").height
+        rect_size_x, rect_size_y = rect_size
+
+        sort_cfg = sort_cfg or {}
+        title_cfg = title_cfg or {}
+        axis_cfg = axis_cfg or {}
+
+        def cfg(scope: dict, key: str, fallback):
+            if key in scope:
+                return scope[key]
+            return fallback
+
+        return (
+            alt.Chart(df)
+            .mark_rect()
+            .encode(
+                x=alt.X(
+                    "model_id:N",
+                    title=cfg(title_cfg, "x", "Model"),
+                    sort=cfg(
+                        sort_cfg,
+                        "x",
+                        alt.EncodingSortField(
+                            field=metric,
+                            op="mean",
+                            order="descending",
+                        ),
+                    ),
+                    axis=cfg(
+                        axis_cfg,
+                        "x",
+                        alt.Axis(
+                            titleFontSize=24,
+                            labelFontSize=22,
+                            labelAngle=-45,
+                        ),
+                    ),
+                ),
+                y=alt.Y(
+                    "label:N",
+                    title=cfg(title_cfg, "y", feature.capitalize()),
+                    sort=cfg(
+                        sort_cfg,
+                        "y",
+                        alt.EncodingSortField(
+                            field=metric,
+                            op="mean",
+                            order="descending",
+                        ),
+                    ),
+                    axis=cfg(
+                        axis_cfg,
+                        "y",
+                        alt.Axis(
+                            titleFontSize=24,
+                            labelFontSize=22,
+                            labelAngle=0,
+                            titlePadding=0,
+                        ),
+                    ),
+                ),
+                color=alt.Color(
+                    f"{metric}:Q",
+                    title=metric.capitalize(),
+                    scale=alt.Scale(
+                        domain=[0, 1],
+                        scheme="tealblues",
+                        reverse=False,
+                    ),
+                    legend=alt.Legend(
+                        orient="right",  # Position the legend at the bottom
+                        titleOrient="top",  # Position the legend title above the gradient
+                        padding=0,  # Add some space around the legend
+                        titleFontSize=20,
+                        labelFontSize=16,
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("model_id:N", title="Model"),
+                    alt.Tooltip("label:N", title="Label"),
+                    alt.Tooltip(
+                        f"{metric}:Q",
+                        title=metric.capitalize(),
+                        format=".2f",
+                    ),
+                ],
+            )
+            .properties(
+                width=rect_size_x * num_rects_x
+                if chart_size is None
+                else chart_size[0],
+                height=rect_size_y * num_rects_y
+                if chart_size is None
+                else chart_size[1],
+            )
+        )
+
+    return (create_classification_accuracy_chart_for_poster,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""## Alignment Measured via F1-Score""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, metric, metrics_overview_df):
+    # 1. Create a base chart for the *inner* plot, WITHOUT the row/column faceting.
+    # This base chart defines the common x, y, color, and tooltip encodings.
+    base = alt.Chart(metrics_overview_df).encode(
+        x=alt.X(
+            "difficulty_level:N",
+            title="Difficulty",
+            axis=alt.Axis(
+                labelAngle=0,
+                titleFontSize=20,
+                labelFontSize=20,
+            ),
+        ),
+        y=alt.Y(
+            f"{metric}:Q",
+            title=metric,
+            axis=alt.Axis(
+                titleFontSize=16,
+                labelFontSize=16,
+            ),
+        ),
+        color=alt.Color(
+            "provider_id:N",
+            title="Provider",
+            scale=alt.Scale(
+                domain=list(PROVIDER_ID_LABELS.values()),
+                range=[
+                    "#75b9a1",
+                    "#DB4437",
+                    "#ee782f",
+                    "#17A9FD",
+                    "#5442c7",
+                ],
+            ),
+            legend=alt.Legend(
+                titleFontSize=26,
+                labelFontSize=22,
+                orient="bottom",
+                direction="horizontal",
+                offset=0,
+                symbolSize=250,
+            ),
+        ),
+        tooltip=[
+            alt.Tooltip("model_id:N", title="Model"),
+            alt.Tooltip("feature:N", title="Feature"),
+            alt.Tooltip("difficulty:N", title="Difficulty"),
+            alt.Tooltip(f"{metric}:Q", title=metric),
+        ],
+    )
+
+    # 2. Define the individual layers from the base.
+    bars = base.mark_bar()
+
+    text = base.mark_text(
+        align="center",
+        baseline="bottom",
+        dy=-5,  # Nudge text up so it doesn't overlap with the bar
+        fontWeight="bold",
+        fontSize=14,
+    ).encode(
+        text=alt.Text(f"{metric}:Q", format=".2f")  # Display the metric value
+    )
+
+    # 3. Layer the charts first, THEN apply faceting and properties.
+    final_chart = (
+        (bars + text)
+        .properties(width=145, height=80)
+        .facet(
+            column=alt.Column(
+                "model_id:N",
+                title=" ",
+                sort=list(MODEL_ID_LABELS.values()),
+                header=alt.Header(
+                    titleFontSize=26,
+                    titlePadding=0,
+                    labelFontSize=18,
+                    labelFontWeight="bold",
+                ),
+            ),
+            row=alt.Row(
+                "feature:N",
+                title=None,
+                sort=["purpose", "encoding", "dim."],
+                header=alt.Header(
+                    titleFontSize=26,
+                    titlePadding=-5,
+                    labelFontSize=22,
+                    labelFontWeight="bold",
+                    labelPadding=5,
+                ),
+            ),
+            spacing={"row": 40, "column": 20},
+        )
+        .configure_view(stroke=None)
+        .configure_axis(grid=False)
+    )
+
+    # Render the final chart
+    mo.ui.altair_chart(final_chart)
     return
 
 
@@ -812,6 +1229,7 @@ def _(ai_df, human_df, metrics_series):
         .select(
             "year",
             "url",
+            "difficulty",
             "purpose",
             "purpose_predicted",
             metrics_series("purpose"),
@@ -826,7 +1244,7 @@ def _(ai_df, human_df, metrics_series):
         )
     )
     comparison_df
-    return
+    return (comparison_df,)
 
 
 @app.cell(hide_code=True)

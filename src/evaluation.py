@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.17"
+__generated_with = "0.15.2"
 app = marimo.App(width="columns", layout_file="layouts/evaluation.grid.json")
 
 with app.setup(hide_code=True):
@@ -775,6 +775,152 @@ def _(human_df):
 
 @app.cell(column=2, hide_code=True)
 def _():
+    mo.md(r"""# Data""")
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Human Labels vs. VLM Labels
+
+    This dataset lines up the human-created labels against the VLM-created labels for `purpose`, `encoding` and `dimensionality` of visualizations across all the probed models.
+    """
+    )
+    return
+
+
+@app.cell
+def _(ai_df, human_df, metrics_series):
+    comparison_df = (
+        human_df.join(
+            ai_df,
+            on="url",
+            how="right",
+            suffix="_predicted",
+        )
+        .with_columns(
+            pl.concat_list("purpose"),
+            pl.concat_list("purpose_predicted"),
+        )
+        .select(
+            "year",
+            "url",
+            "difficulty",
+            "purpose",
+            "purpose_predicted",
+            metrics_series("purpose"),
+            pl.col("encoding").list.sort(),
+            pl.col("encoding_predicted").list.sort(),
+            metrics_series("encoding"),
+            pl.col("dimensionality").list.sort(),
+            pl.col("dimensionality_predicted").list.sort(),
+            metrics_series("dimensionality"),
+            "provider",
+            "model",
+        )
+    )
+    comparison_df
+    return (comparison_df,)
+
+
+@app.cell(hide_code=True)
+def _():
+    def compute_individual_metrics(struct: dict | None):
+        if struct is None:
+            return None
+
+        real: set[str] = set(struct["real"]) if struct["real"] else set()
+        predicted: set[str] = set(struct["predicted"]) if struct["predicted"] else set()
+        tp = len(real & predicted)
+        precision = tp / len(predicted) if len(predicted) > 0 else 0
+        recall = tp / len(real) if len(real) > 0 else 0
+        return {
+            "precision": float(precision),
+            "recall": float(recall),
+        }
+
+    def metrics_series(attribute: str) -> pl.Series:
+        return (
+            pl.struct(
+                real=attribute,
+                predicted=f"{attribute}_predicted",
+            )
+            .map_elements(
+                compute_individual_metrics,
+                return_dtype=pl.Struct(
+                    {
+                        "precision": pl.Float64,
+                        "recall": pl.Float64,
+                    }
+                ),
+            )
+            .alias(f"{attribute}_metrics")
+        )
+
+    return (metrics_series,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Raw Expert-Labeled Dataset
+
+    This is the original, unprocessed dataset coming from a subset of VIS30K annotated by experts, loaded from [VISImageNavigator](https://visimagenavigator.github.io/index.html).
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    human_raw_df = read_human_raw_df()
+    human_raw_df
+    return (human_raw_df,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## Processed Expert-labeled Dataset
+
+    The original dataset had to be pre-processed to split the `purpose` and `encoding` from the `encoding_type` column.
+    """
+    )
+    return
+
+
+@app.cell
+def _(human_raw_df):
+    human_df = construct_human_df(human_raw_df)
+    human_df
+    return (human_df,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    ## VLM-Annotated Dataset
+
+    This dataset holds the inference results across all probed models. Each model was prompted to determine the `purpose`, `encoding` and `dimensionality` of the visualizations.
+    """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    ai_df = read_ai_df()
+    ai_df
+    return (ai_df,)
+
+
+@app.cell(column=3, hide_code=True)
+def _():
     mo.md(r"""# Poster Components""")
     return
 
@@ -783,7 +929,7 @@ def _():
 def _():
     mo.md(
         r"""
-    ## Do Bigger Models Alays Perform Better?
+    ## Do Bigger Models Always Perform Better?
 
     Examples below show instances where smaller models of the same family showed better alignment with human experts than the bigger models.
     """
@@ -793,9 +939,7 @@ def _():
 
 @app.cell
 def _(comparison_df):
-    small_beats_big_demo = (
-        "https://ivcl.jiangsn.com/VIS30K/Images/2010/InfoVisJ.1182.2.png"
-    )
+    small_beats_big_demo = "https://ivcl.jiangsn.com/VIS30K/Images/2010/VASTC.43.8.png"
 
     comparison_df.filter(
         (
@@ -808,8 +952,8 @@ def _(comparison_df):
 
 @app.cell(hide_code=True)
 def _(comparison_df):
-    BIG_MODEL = "gpt-4.1"
-    SMALL_MODEL = "gpt-4.1-mini"
+    BIG_MODEL = "gemini-2.5-pro-preview-05-06"
+    SMALL_MODEL = "llama-4-scout"
     (
         comparison_df.filter(
             (pl.col("model").is_in([BIG_MODEL, SMALL_MODEL]))
@@ -857,7 +1001,7 @@ def _():
 def _(comparison_df):
     # Hand-picked example
     different_failures_demo_pick = (
-        "https://ivcl.jiangsn.com/VIS30K/Images/2020/SciVisJ.806.7.png"
+        "https://ivcl.jiangsn.com/VIS30K/Images/2020/InfoVisJ.539.4.png"
     )
     (
         comparison_df.filter(
@@ -1193,152 +1337,6 @@ def _(MODEL_ID_LABELS, PROVIDER_ID_LABELS, metric, metrics_overview_df):
     # Render the final chart
     mo.ui.altair_chart(final_chart)
     return
-
-
-@app.cell(column=3, hide_code=True)
-def _():
-    mo.md(r"""# Data""")
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(
-        r"""
-    ## Human Labels vs. VLM Labels
-
-    This dataset lines up the human-created labels against the VLM-created labels for `purpose`, `encoding` and `dimensionality` of visualizations across all the probed models.
-    """
-    )
-    return
-
-
-@app.cell
-def _(ai_df, human_df, metrics_series):
-    comparison_df = (
-        human_df.join(
-            ai_df,
-            on="url",
-            how="right",
-            suffix="_predicted",
-        )
-        .with_columns(
-            pl.concat_list("purpose"),
-            pl.concat_list("purpose_predicted"),
-        )
-        .select(
-            "year",
-            "url",
-            "difficulty",
-            "purpose",
-            "purpose_predicted",
-            metrics_series("purpose"),
-            pl.col("encoding").list.sort(),
-            pl.col("encoding_predicted").list.sort(),
-            metrics_series("encoding"),
-            pl.col("dimensionality").list.sort(),
-            pl.col("dimensionality_predicted").list.sort(),
-            metrics_series("dimensionality"),
-            "provider",
-            "model",
-        )
-    )
-    comparison_df
-    return (comparison_df,)
-
-
-@app.cell(hide_code=True)
-def _():
-    def compute_individual_metrics(struct: dict | None):
-        if struct is None:
-            return None
-
-        real: set[str] = set(struct["real"]) if struct["real"] else set()
-        predicted: set[str] = set(struct["predicted"]) if struct["predicted"] else set()
-        tp = len(real & predicted)
-        precision = tp / len(predicted) if len(predicted) > 0 else 0
-        recall = tp / len(real) if len(real) > 0 else 0
-        return {
-            "precision": float(precision),
-            "recall": float(recall),
-        }
-
-    def metrics_series(attribute: str) -> pl.Series:
-        return (
-            pl.struct(
-                real=attribute,
-                predicted=f"{attribute}_predicted",
-            )
-            .map_elements(
-                compute_individual_metrics,
-                return_dtype=pl.Struct(
-                    {
-                        "precision": pl.Float64,
-                        "recall": pl.Float64,
-                    }
-                ),
-            )
-            .alias(f"{attribute}_metrics")
-        )
-
-    return (metrics_series,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(
-        r"""
-    ## Raw Expert-Labeled Dataset
-
-    This is the original, unprocessed dataset coming from a subset of VIS30K annotated by experts, loaded from [VISImageNavigator](https://visimagenavigator.github.io/index.html).
-    """
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    human_raw_df = read_human_raw_df()
-    human_raw_df
-    return (human_raw_df,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(
-        r"""
-    ## Processed Expert-labeled Dataset
-
-    The original dataset had to be pre-processed to split the `purpose` and `encoding` from the `encoding_type` column.
-    """
-    )
-    return
-
-
-@app.cell
-def _(human_raw_df):
-    human_df = construct_human_df(human_raw_df)
-    human_df
-    return (human_df,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(
-        r"""
-    ## VLM-Annotated Dataset
-
-    This dataset holds the inference results across all probed models. Each model was prompted to determine the `purpose`, `encoding` and `dimensionality` of the visualizations.
-    """
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    ai_df = read_ai_df()
-    ai_df
-    return (ai_df,)
 
 
 @app.cell(column=4, hide_code=True)

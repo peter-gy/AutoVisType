@@ -183,7 +183,7 @@ requires-dist = [
     { name = "langchain-ollama", specifier = ">=0.3.3" },
     { name = "langchain-openai", specifier = ">=0.3.18" },
     { name = "langfuse", specifier = ">=2.60.6" },
-    { name = "marimo", extras = ["recommended"], specifier = ">=0.14.17" },
+    { name = "marimo", extras = ["recommended"], specifier = ">=0.15.2" },
     { name = "openai", specifier = ">=1.82.0" },
     { name = "plotly", specifier = ">=6.1.2" },
     { name = "polars", specifier = ">=1.32.3" },
@@ -1045,7 +1045,7 @@ wheels = [
 
 [[package]]
 name = "marimo"
-version = "0.14.17"
+version = "0.15.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1065,9 +1065,9 @@ dependencies = [
     { name = "uvicorn" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/2a/f0ce506e78e49ae0fe567ae23418e9af759c0272ac46c91a7d5ed8e92777/marimo-0.14.17.tar.gz", hash = "sha256:f38e592b83f8c23a0f19ef32d845594f6566691c28b1e41d04a78156df953305", size = 30581473, upload-time = "2025-08-11T19:31:16.103Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/b8/fb55e2943bf2ac958b3c2975ed3d8022edc7763b674f65af75ded2859bd2/marimo-0.15.2.tar.gz", hash = "sha256:726933fd9c9561fa73e323b1821b173c5e0f85196ec2a497a3509cc2fc245c58", size = 31191439, upload-time = "2025-08-29T16:56:46.748Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/23/ca5f37ea5f6d0e22e8ba1bb6c2d00b44d8178ec5c5b10dad9d17e3561886/marimo-0.14.17-py3-none-any.whl", hash = "sha256:88e2b3fe86567c322805a5faebcc18e302813b109e017e1104157e44b8659777", size = 30819777, upload-time = "2025-08-11T19:31:12.049Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/e6/eb732caaea80ca1d0b3a66c862a062dcd031ed1348291b78362aec9dd1c2/marimo-0.15.2-py3-none-any.whl", hash = "sha256:630cbad0217fb6cd8f78e6775b955242c1528a673233095dec5901781588bee9", size = 31427634, upload-time = "2025-08-29T16:56:52.564Z" },
 ]
 
 [package.optional-dependencies]

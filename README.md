@@ -1,12 +1,8 @@
 [![Open in molab](https://molab.marimo.io/molab-shield.png)](https://molab.marimo.io/notebooks/nb_P78Fecf4gZkYE4MCKXcanW)
 
-# Do Vision-Language Models See Visualizations Like Humans? Alignment in Chart Categorization
+[![Poster](assets/poster.png)](./assets/poster.pdf)
 
 This repository implements the research described in our submission to the IEEE VIS 25 poster track. The project investigates whether state-of-the-art Vision-Language Models (VLMs) can align with human-centric, stimuli-based categorization of data visualizations.
-
----
-
-[![Poster](assets/poster.png)](./assets/poster.pdf)
 
 ---
 

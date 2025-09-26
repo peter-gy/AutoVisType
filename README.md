@@ -1,3 +1,4 @@
+[![arXiv](https://img.shields.io/badge/arXiv-2509.05718-b31b1b.svg)](https://arxiv.org/abs/2509.05718)
 [![Open in molab](https://molab.marimo.io/molab-shield.png)](https://molab.marimo.io/notebooks/nb_P78Fecf4gZkYE4MCKXcanW)
 
 [![Poster](assets/poster.png)](./assets/poster.pdf)
